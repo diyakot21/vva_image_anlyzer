@@ -1,0 +1,48 @@
+[project]
+name = "vva_image_analyzer"
+version = "0.0.3"
+description = "Image analysis service"
+readme = "README.md"
+requires-python = "==3.13.*"
+dependencies = [
+    "uvicorn",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "pillow>=10.0.0",
+    "ipykernel>=6.30.1",
+    "scikit-image>=0.25.2",
+    "matplotlib>=3.10.6",
+]
+
+[tool.ruff]
+fix = true
+line-length = 88
+select = [
+    "I",    # isort
+    "N",    # pep8 naming
+    "TID",  # flake8-tidy-imports
+    "T201", # print found
+    "F401", # imported but unused
+    "F841", # local variable is assigned to but never used
+]
+ignore=["E501"]
+target-version = "py311"
+
+[tool.ruff.isort]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"] # init files can have unused imports
+
+[dependency-groups]
+dev = [
+    "black==23.7.0",
+    "ipython",
+    "pytest>=7.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
