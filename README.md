@@ -1,59 +1,166 @@
 # Brain Image Analysis
 
+Tools for analyzing brain images to detect perineuronal nets (PNNs) and general circular structures (e.g. PV protein–related features). Implements OpenCV‑based preprocessing, Hough circle candidates, lightweight ring template matching, and multi‑metric quality scoring.
 
-This package provides tools for analyzing brain images to detect perineuronal nets (PNNs) and circular structures, specifically designed for identifying PV protein development in mice brain images using OpenCV and advanced ring detection.
+---
+## ✨ Features
 
-## Features
+Core
+* Image loading (`ImageReader`) with JPG / PNG / TIF(F) / BMP support
+* PNN detection (`PNNAnalyzer`) combining:
+    * Preprocessing: bilateral denoise, optional background subtraction, optional CLAHE
+    * Hough gradient circle candidates + single ring template matching
+    * Quality metrics: contrast, ring uniformity, center darkness, signal/background, size
+    * Overlap suppression
+* Generic circular structure detection (`BrainImageAnalyzer`) via Hough Circle Transform
+* Visualization utilities for drawing detections
 
-- **Image Reading**: Load images from local directories with support for common formats (JPG, PNG, TIFF, BMP)
-- **PNN Detection**: Specialized detection of perineuronal nets (PNNs) using ring template matching and quality scoring
-- **Circle Detection**: Use Hough Circle Transform for general circular structures
-- **PV Protein Analysis**: Tuned for detecting protein clusters in brain tissue
-- **Batch Processing**: Process multiple images from a directory
-- **Visualization**: Generate annotated images showing detected circles
-- **Statistics**: Calculate comprehensive statistics across multiple images
+Developer / Analysis
+* Batch processing of all images in `images/`
+* Quality score breakdown and color legend in console output
+* Simple image property helpers (`image_utils`)
+* Pytest test suite with synthetic and sample images
 
-## Installation
+---
+## 🗂 Project Structure
 
+```
+.
+├── runner.py                # Main PNN batch runner
+├── src/
+│   ├── pnn_analyzer.py      # PNN detection logic
+│   ├── brain_analyzer.py    # Generic circle detection
+│   ├── image_reader.py      # Directory image loader
+│   └── image_utils.py       # Basic image helpers
+├── images/                  # (User) input images (.tif, .png, ...)
+├── output/                  # Generated annotated outputs
+├── tests/                   # Test suite + sample images
+│   └── test_images/         # Example test images
+├── pyproject.toml           # Project + dependency metadata
+└── uv.lock                  # Locked dependency versions
+```
+
+---
+## 🚀 Installation
+
+Install using [uv](https://github.com/astral-sh/uv) (recommended):
 
 ```bash
-# Install with uv (recommended)
 uv sync
+```
 
-# Or install dependencies manually
+Or (fallback) install key runtime dependencies manually:
+
+```bash
 pip install opencv-python numpy pillow scikit-image matplotlib
 ```
 
-## Quick Start
+Python 3.13 is targeted (see `pyproject.toml`). Use `uv run` to automatically use the project environment (no manual activation needed).
 
+---
+## ▶️ Quick Start: PNN Detection
 
-## Quick Start: PNN Detection
-
-The main runner script is `runner_optimal.py`. This script detects PNNs in all `.tif` images in the `images/` folder and saves annotated results to `output/`.
+Place one or more `.tif` (or other supported) images in `images/` then run:
 
 ```bash
-uv run python runner_optimal.py
+uv run python runner.py
 ```
 
-You can adjust the input/output folders by editing the script or passing arguments if supported.
+Output:
+* Annotated images: `output/pnn_<original_name>.tif|png`
+* Console summary: counts + quality score distribution
 
-The results will be saved as annotated images and a summary in the `output/` directory.
+Color legend (default console):
+* >0.8 quality = Green
+* 0.7–0.8 = Yellow
+* 0.6–0.7 = Cyan / Blue
+* ≤0.6 = Red
 
-## Module Overview
+---
+## ⚙️ Tuning Key Parameters (`PNNAnalyzer`)
 
+Constructor arguments (shown with runner overrides):
 
-### `src/pnn_analyzer.PNNAnalyzer`
-Performs PNN (perineuronal net) detection using ring template matching, Hough circles, and quality scoring.
+```python
+PNNAnalyzer(
+        min_pnn_radius=5,
+        max_pnn_radius=65,
+        contrast_threshold=1.05,
+        uniformity_threshold=0.18,
+        template_threshold=0.27,
+        center_darkness_threshold=0.70,
+        use_clahe=True,
+        clahe_clip_limit=2.5,
+        clahe_tile_grid=(8, 8),
+        apply_background_subtraction=True,
+        background_blur_radius=55,
+)
+```
 
-**Key Methods:**
-- `analyze_image()`: Complete PNN analysis of a single image
-- `detect_candidate_circles()`: Finds candidate PNNs using template matching and Hough transform
-- `draw_pnn_detections()`: Visualize detected PNNs with quality coloring
+Adjustment guidance:
+* Lower `contrast_threshold` → more sensitive (may increase false positives)
+* Lower `uniformity_threshold` → accept less uniform rings
+* Lower `template_threshold` → more template hits (filter later by quality)
+* Increase `background_blur_radius` if illumination gradients remain
+* Disable `use_clahe` for already high‑contrast fluorescence images
 
-**Key Parameters:**
-- `min_pnn_radius`/`max_pnn_radius`: Size range for PNNs
-- `contrast_threshold`: Minimum ring/center intensity ratio
-- `uniformity_threshold`: Minimum ring uniformity
+---
+## 🔍 Generic Circle Detection (`BrainImageAnalyzer`)
+
+For simpler circular structure detection (no ring quality scoring):
+
+```python
+from src.brain_analyzer import BrainImageAnalyzer
+analyzer = BrainImageAnalyzer(dp=1.0, min_dist=20, param1=60, param2=25,
+                                                            min_radius=5, max_radius=50)
+result = analyzer.analyze_image(image, "sample.png")
+print(result.circle_count, result.circles)
+```
+
+---
+## 🧪 Testing
+
+Run all tests:
+
+```bash
+uv run pytest -v
+```
+
+Focused run (single test file):
+
+```bash
+uv run pytest tests/test_images.py::TestImageAnalysis::test_simple_circles_detection -v
+```
+
+The test suite validates circle detection, parameter updates, drawing, and statistics.
+
+---
+## 🛠 Developer Tips
+
+* Use `uv run python -c "import cv2; print(cv2.__version__)"` to verify OpenCV.
+* Use `ImageReader` for batch loops: `for path, img in ImageReader("./images").load_all_images(): ...`.
+* Add new dependencies via `pyproject.toml` then `uv sync`.
+* Prefer `uv run <cmd>` instead of activating `.venv`.
+
+---
+## 📦 Export / Packaging (Optional)
+
+This project is defined as a standard Python package (`[project]` in `pyproject.toml`). You can build a wheel:
+
+```bash
+uv build
+```
+
+---
+## 🧾 License
+
+Add your license statement here (MIT, Apache-2.0, etc.).
+
+---
+## ✉️ Contact
+
+For questions or suggestions open an issue or PR.
+
 
 
 ## Parameter Tuning for PNN Detection
