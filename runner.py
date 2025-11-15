@@ -1,31 +1,9 @@
-"""PNN detection runner (simplified)."""
-
 import cv2
 import numpy as np
 from pathlib import Path
 
-from src.pnn_analyzer import PNNAnalyzer as BasePNNAnalyzer
+from src.pnn_analyzer import PNNAnalyzer
 from src.image_reader import ImageReader
-
-
-class PNNAnalyzer(BasePNNAnalyzer):
-    """PNNAnalyzer with preferred thresholds (renamed from OptimalPNNAnalyzer)."""
-
-    def __init__(self, pixel_size_mm: float = 0.001):
-        super().__init__(
-            min_pnn_radius_mm=0.005,  # 5 microns
-            max_pnn_radius_mm=0.065,  # 65 microns
-            pixel_size_mm=pixel_size_mm,  # 1 micron per pixel default
-            contrast_threshold=1.05,
-            uniformity_threshold=0.18,
-            template_threshold=0.27,
-            center_darkness_threshold=0.70,
-            use_clahe=True,
-            clahe_clip_limit=2.5,
-            clahe_tile_grid=(8, 8),
-            apply_background_subtraction=True,
-            background_blur_radius=55,
-        )
 
 
 def main():
@@ -39,7 +17,21 @@ def main():
         print(f"PNN DETECTION: {image_path.name}")
         print(f"{'='*60}")
 
-        analyzer = PNNAnalyzer()
+        # Initialize analyzer with optimized parameters for PNN detection
+        analyzer = PNNAnalyzer(
+            min_pnn_radius_mm=0.005,  # 5 microns
+            max_pnn_radius_mm=0.065,  # 65 microns
+            pixel_size_mm=0.001,  # 1 micron per pixel (adjust for your microscope)
+            contrast_threshold=1.05,
+            uniformity_threshold=0.18,
+            template_threshold=0.27,
+            center_darkness_threshold=0.70,
+            use_clahe=True,
+            clahe_clip_limit=2.5,
+            clahe_tile_grid=(8, 8),
+            apply_background_subtraction=True,
+            background_blur_radius=55,
+        )
         print(f"\n⚙️  PARAMETERS:")
         print(f"   Pixel size: {analyzer.pixel_size_mm*1000:.2f} µm/pixel")
         print(f"   PNN radius range: {analyzer.min_pnn_radius_mm*1000:.1f}-{analyzer.max_pnn_radius_mm*1000:.1f} µm")

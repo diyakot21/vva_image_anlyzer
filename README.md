@@ -48,32 +48,44 @@ Install using [uv](https://github.com/astral-sh/uv) (recommended):
 uv sync
 ```
 
-Or (fallback) install key runtime dependencies manually:
-
-```bash
-pip install opencv-python numpy pillow scikit-image matplotlib
-```
-
 Python 3.13 is targeted (see `pyproject.toml`). Use `uv run` to automatically use the project environment (no manual activation needed).
 
 ---
-## ▶️ Quick Start: PNN Detection
+## ▶️ Quick Start: Running the PNN Detector
 
-Place one or more `.tif` (or other supported) images in `images/` then run:
+### 1. Prepare your images
+Place your brain section images (`.tif`, `.png`, or other supported formats) in the `images/` directory:
+```bash
+mkdir -p images
+# Copy your images to the images/ folder
+```
 
+### 2. Run the analyzer
 ```bash
 uv run python runner.py
 ```
 
-Output:
-* Annotated images: `output/pnn_<original_name>.tif|png`
-* Console summary: PNN counts, sizes in micrometers, quality score distribution
+The runner will:
+- Process all images in `images/`
+- Detect PNNs using optimized parameters (5-65 µm radius range)
+- Display progress and detection statistics in the console
+- Save annotated images to `output/`
 
-Color legend:
-* >0.8 quality = Green
-* 0.7–0.8 = Yellow
-* 0.6–0.7 = Cyan / Blue
-* ≤0.6 = Red
+### 3. View results
+**Annotated images**: `output/pnn_<original_name>.tif|png`
+- Each detected PNN is drawn as a colored circle
+- Circle color indicates quality score
+
+**Console output**:
+- Total PNNs detected per image
+- Average, min, and max PNN sizes in micrometers
+- Quality score breakdown
+
+**Quality color legend**:
+- 🟢 Green (>0.8): Excellent detection
+- 🟡 Yellow (0.7–0.8): Good detection
+- 🔵 Cyan/Blue (0.6–0.7): Moderate detection
+- 🔴 Red (≤0.6): Poor detection
 
 ---
 ## 📏 Usage with Millimeter Parameters
