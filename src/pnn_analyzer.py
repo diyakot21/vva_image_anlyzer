@@ -35,8 +35,19 @@ class PNNAnalyzer:
     ) -> None:
         """Initialize PNN analyzer with millimeter-based size parameters.
         
-        Radii are specified in mm and converted to pixels using pixel_size_mm.
-        Quality thresholds control detection sensitivity.
+        Args:
+            min_pnn_radius_mm: Minimum PNN radius in millimeters (typical: 0.005-0.010 = 5-10 µm)
+            max_pnn_radius_mm: Maximum PNN radius in millimeters (typical: 0.030-0.065 = 30-65 µm)
+            pixel_size_mm: Physical size of one pixel in millimeters (calibrate from microscope magnification)
+            contrast_threshold: Ring must be this many times brighter than center (lower = more sensitive)
+            uniformity_threshold: Minimum ring brightness consistency 0-1 (lower = accepts patchier rings)
+            template_threshold: How well shape must match ring template 0-1 (lower = more lenient matching)
+            center_darkness_threshold: Maximum center/ring brightness ratio (lower = requires darker centers)
+            use_clahe: Apply contrast-limited adaptive histogram equalization preprocessing
+            clahe_clip_limit: CLAHE contrast limit (higher = more aggressive enhancement)
+            clahe_tile_grid: CLAHE grid size for local enhancement regions
+            apply_background_subtraction: Subtract blurred background to improve foreground contrast
+            background_blur_radius: Blur kernel radius for background estimation (larger = smoother)
         """
         if pixel_size_mm <= 0:
             raise ValueError("pixel_size_mm must be > 0")
