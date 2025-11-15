@@ -11,10 +11,11 @@ from src.image_reader import ImageReader
 class PNNAnalyzer(BasePNNAnalyzer):
     """PNNAnalyzer with preferred thresholds (renamed from OptimalPNNAnalyzer)."""
 
-    def __init__(self):
+    def __init__(self, pixel_size_mm: float = 0.001):
         super().__init__(
-            min_pnn_radius=5,
-            max_pnn_radius=65,
+            min_pnn_radius_mm=0.005,  # 5 microns
+            max_pnn_radius_mm=0.065,  # 65 microns
+            pixel_size_mm=pixel_size_mm,  # 1 micron per pixel default
             contrast_threshold=1.05,
             uniformity_threshold=0.18,
             template_threshold=0.27,
@@ -30,6 +31,8 @@ class PNNAnalyzer(BasePNNAnalyzer):
 def main():
     reader = ImageReader("./images")
     output_dir = Path("./output")
+    # Ensure output directory exists so cv2.imwrite doesn't fail silently
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     for image_path, image in reader.load_all_images(color_mode="color"):
         print(f"\n{'='*60}")
@@ -38,6 +41,8 @@ def main():
 
         analyzer = PNNAnalyzer()
         print(f"\n⚙️  PARAMETERS:")
+        print(f"   Pixel size: {analyzer.pixel_size_mm*1000:.2f} µm/pixel")
+        print(f"   PNN radius range: {analyzer.min_pnn_radius_mm*1000:.1f}-{analyzer.max_pnn_radius_mm*1000:.1f} µm")
         print(f"   Template threshold: {analyzer.template_threshold}")
         print(f"   Contrast threshold: {analyzer.contrast_threshold}")
         print(f"   Uniformity threshold: {analyzer.uniformity_threshold}")
@@ -46,6 +51,12 @@ def main():
         result = analyzer.analyze_image(image, str(image_path))
         print(f"\n📊 RESULTS:")
         print(f"   PNNs detected: {result.pnn_count}")
+        if result.pnn_circles_mm:
+            radii_mm = [r for _, _, r in result.pnn_circles_mm]
+            avg_radius_um = np.mean(radii_mm) * 1000
+            min_radius_um = min(radii_mm) * 1000
+            max_radius_um = max(radii_mm) * 1000
+            print(f"   PNN sizes (µm): avg={avg_radius_um:.1f}, range={min_radius_um:.1f}-{max_radius_um:.1f}")
         if result.quality_scores:
             avg_quality = float(np.mean(result.quality_scores))
             min_quality = float(min(result.quality_scores))

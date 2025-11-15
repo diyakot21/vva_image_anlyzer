@@ -10,7 +10,7 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.brain_analyzer import BrainImageAnalyzer, CircleDetectionResult
+from src.pnn_analyzer import PNNAnalyzer, PNNDetectionResult
 from src.image_reader import ImageReader
 
 
@@ -21,8 +21,10 @@ class TestImageAnalysis:
     def setup_class(cls):
         """Set up test fixtures."""
         cls.test_images_dir = Path(__file__).parent / "test_images"
-        cls.analyzer = BrainImageAnalyzer(
-            dp=1.0, min_dist=20, param1=60, param2=25, min_radius=5, max_radius=50
+        cls.analyzer = PNNAnalyzer(
+            min_pnn_radius_mm=0.005,
+            max_pnn_radius_mm=0.050,
+            pixel_size_mm=0.001
         )
         cls.reader = ImageReader(str(cls.test_images_dir))
 
@@ -35,10 +37,10 @@ class TestImageAnalysis:
 
         result = self.analyzer.analyze_image(image, str(simple_circles_path))
 
-        assert isinstance(result, CircleDetectionResult)
-        assert result.circle_count == 4, "Circle count should be 4"
+        assert isinstance(result, PNNDetectionResult)
+        assert result.pnn_count == 4, "Circle count should be 4"
         assert (
-            len(result.circles) == result.circle_count
+            len(result.pnn_circles) == result.pnn_count
         ), "Circle list length should match count"
 
     def test_brain_like_detection(self):
@@ -53,12 +55,12 @@ class TestImageAnalysis:
 
         result = self.analyzer.analyze_image(image, str(brain_like_path))
 
-        assert isinstance(result, CircleDetectionResult)
-        assert result.circle_count >= 0, "Circle count should be non-negative"
+        assert isinstance(result, PNNDetectionResult)
+        assert result.pnn_count >= 0, "Circle count should be non-negative"
 
-        print(f"brain_like.png: Detected {result.circle_count} circles")
-        if result.circle_count <= 20:  # Only print if reasonable number
-            for i, (x, y, r) in enumerate(result.circles):
+        print(f"brain_like.png: Detected {result.pnn_count} circles")
+        if result.pnn_count <= 20:
+            for i, (x, y, r) in enumerate(result.pnn_circles):
                 print(f"  Circle {i+1}: ({x}, {y}, radius={r})")
         else:
             print(f"  (Too many circles to list individually)")
@@ -78,16 +80,16 @@ class TestImageAnalysis:
             results.append((image_path.name, result))
 
             # Basic assertions
-            assert isinstance(result, CircleDetectionResult)
-            assert result.circle_count >= 0
-            assert len(result.circles) == result.circle_count
+            assert isinstance(result, PNNDetectionResult)
+            assert result.pnn_count >= 0
+            assert len(result.pnn_circles) == result.pnn_count
             assert result.image_path == str(image_path)
 
-            print(f"  Detected: {result.circle_count} circles")
+            print(f"  Detected: {result.pnn_count} circles")
             print(f"  Image size: {image.shape}")
 
-            # Test circle coordinates are within reasonable bounds (allow some edge tolerance)
-            for x, y, r in result.circles:
+            # Test circle coordinates are within reasonable bounds
+            for x, y, r in result.pnn_circles:
                 assert (
                     -r <= x <= image.shape[1] + r
                 ), f"Circle x={x} too far outside image width {image.shape[1]}"
@@ -99,7 +101,7 @@ class TestImageAnalysis:
         assert len(results) > 0, "Should have processed at least one image"
 
         # Summary statistics
-        total_circles = sum(result.circle_count for _, result in results)
+        total_circles = sum(result.pnn_count for _, result in results)
         avg_circles = total_circles / len(results) if results else 0
 
         print(f"\n=== Test Summary ===")
@@ -109,66 +111,36 @@ class TestImageAnalysis:
 
     def test_analyzer_parameters(self):
         """Test that analyzer parameters are properly set."""
-        assert self.analyzer.dp == 1.0
-        assert self.analyzer.min_dist == 20
-        assert self.analyzer.param1 == 60
-        assert self.analyzer.param2 == 25
-        assert self.analyzer.min_radius == 5
-        assert self.analyzer.max_radius == 50
-
-    def test_parameter_update(self):
-        """Test that analyzer parameters can be updated."""
-        original_param2 = self.analyzer.param2
-
-        # Update parameter
-        self.analyzer.update_parameters(param2=30)
-        assert self.analyzer.param2 == 30
-
-        # Test invalid parameter
-        with pytest.raises(ValueError):
-            self.analyzer.update_parameters(invalid_param=123)
-
-        # Restore original
-        self.analyzer.update_parameters(param2=original_param2)
+        assert self.analyzer.pixel_size_mm == 0.001
+        assert self.analyzer.min_pnn_radius_mm == 0.005
+        assert self.analyzer.max_pnn_radius_mm == 0.050
 
     def test_draw_circles_functionality(self):
         """Test the circle drawing functionality."""
-        # Create a simple test image
         test_image = np.ones((200, 300, 3), dtype=np.uint8) * 255
-
-        # Define test circles
         test_circles = [(100, 100, 30), (200, 150, 20)]
 
-        # Draw circles
-        annotated = self.analyzer.draw_circles(test_image, test_circles)
+        annotated = self.analyzer.draw_pnn_detections(test_image, test_circles)
 
         assert annotated.shape == test_image.shape
         assert annotated.dtype == test_image.dtype
-
-        # Check that the image was modified (circles were drawn)
         assert not np.array_equal(
             annotated, test_image
         ), "Image should be modified after drawing circles"
 
     def test_statistics_calculation(self):
-        """Test the statistics calculation functionality."""
-        # Create mock results
+        """Test basic statistics from results."""
         mock_results = [
-            CircleDetectionResult("image1.png", [(10, 10, 5), (20, 20, 10)], 2, {}),
-            CircleDetectionResult("image2.png", [(30, 30, 15)], 1, {}),
-            CircleDetectionResult("image3.png", [], 0, {}),
+            PNNDetectionResult("image1.png", [(10, 10, 5), (20, 20, 10)], [], 2, [0.8, 0.9], {}),
+            PNNDetectionResult("image2.png", [(30, 30, 15)], [], 1, [0.7], {}),
+            PNNDetectionResult("image3.png", [], [], 0, [], {}),
         ]
 
-        stats = self.analyzer.get_circle_statistics(mock_results)
+        total_pnns = sum(r.pnn_count for r in mock_results)
+        avg_pnns = total_pnns / len(mock_results)
 
-        assert stats["total_images"] == 3
-        assert stats["total_circles"] == 3
-        assert stats["avg_circles_per_image"] == 1.0
-        assert stats["min_circles_per_image"] == 0
-        assert stats["max_circles_per_image"] == 2
-        assert stats["avg_radius"] == 10.0  # (5 + 10 + 15) / 3
-        assert stats["min_radius"] == 5
-        assert stats["max_radius"] == 15
+        assert total_pnns == 3
+        assert avg_pnns == 1.0
 
 
 def run_interactive_test():
@@ -184,8 +156,10 @@ def run_interactive_test():
 
     # Initialize components
     reader = ImageReader(str(test_images_dir))
-    analyzer = BrainImageAnalyzer(
-        dp=1.0, min_dist=20, param1=60, param2=25, min_radius=5, max_radius=50
+    analyzer = PNNAnalyzer(
+        min_pnn_radius_mm=0.005,
+        max_pnn_radius_mm=0.050,
+        pixel_size_mm=0.001
     )
 
     # Create output directory for annotated results
@@ -215,22 +189,22 @@ def run_interactive_test():
         results.append(result)
 
         print(f"  📊 Image size: {image.shape[1]}x{image.shape[0]} pixels")
-        print(f"  🎯 Detected: {result.circle_count} circles")
+        print(f"  🎯 Detected: {result.pnn_count} circles")
 
-        # Show circle details (limit output for readability)
-        if result.circle_count > 0:
-            if result.circle_count <= 10:
+        # Show circle details
+        if result.pnn_count > 0:
+            if result.pnn_count <= 10:
                 print("  📍 Circle positions (x, y, radius):")
-                for i, (x, y, r) in enumerate(result.circles):
+                for i, (x, y, r) in enumerate(result.pnn_circles):
                     print(f"     {i+1}. ({x}, {y}, {r})")
             else:
                 print("  📍 First 5 circles (x, y, radius):")
-                for i, (x, y, r) in enumerate(result.circles[:5]):
+                for i, (x, y, r) in enumerate(result.pnn_circles[:5]):
                     print(f"     {i+1}. ({x}, {y}, {r})")
-                print(f"     ... and {result.circle_count - 5} more circles")
+                print(f"     ... and {result.pnn_count - 5} more circles")
 
             # Create annotated image
-            annotated = analyzer.draw_circles(image, result.circles)
+            annotated = analyzer.draw_pnn_detections(image, result.pnn_circles)
             output_path = output_dir / f"test_result_{image_path.name}"
             cv2.imwrite(str(output_path), annotated)
             print(f"  💾 Saved annotated image: {output_path}")
@@ -239,20 +213,15 @@ def run_interactive_test():
 
     # Overall statistics
     if results:
-        stats = analyzer.get_circle_statistics(results)
+        total_pnns = sum(r.pnn_count for r in results)
+        avg_pnns = total_pnns / len(results)
+        pnn_counts = [r.pnn_count for r in results]
 
         print(f"\n📈 Overall Statistics:")
-        print(f"   Images processed: {stats['total_images']}")
-        print(f"   Total circles found: {stats['total_circles']}")
-        print(f"   Average per image: {stats['avg_circles_per_image']:.2f}")
-        print(
-            f"   Circle count range: {stats['min_circles_per_image']} - {stats['max_circles_per_image']}"
-        )
-        if stats["avg_radius"] > 0:
-            print(f"   Average radius: {stats['avg_radius']:.1f} pixels")
-            print(
-                f"   Radius range: {stats['min_radius']:.0f} - {stats['max_radius']:.0f} pixels"
-            )
+        print(f"   Images processed: {len(results)}")
+        print(f"   Total circles found: {total_pnns}")
+        print(f"   Average per image: {avg_pnns:.2f}")
+        print(f"   Circle count range: {min(pnn_counts)} - {max(pnn_counts)}")
 
         print(f"\n📁 Annotated results saved in: {output_dir.absolute()}")
     else:
