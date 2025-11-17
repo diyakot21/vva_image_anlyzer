@@ -171,9 +171,16 @@ class PNNAnalyzer:
             # to account for diffuse halos or merged PNNs.
             if area > np.pi * (self.max_pnn_radius ** 2) * 1.5:
                 continue
+            # Shape validation: aspect ratio and extent
+            x, y, w, h, _ = stats[i]
+            aspect_ratio = w / h if h > 0 else 0
+            extent = area / (w * h) if w > 0 and h > 0 else 0
+            if not (0.5 <= aspect_ratio <= 2.0):
+                continue
+            if extent < 0.5:
+                continue
             approx_r = int(np.sqrt(area / np.pi))
             candidates.append((int(x_center), int(y_center), approx_r))
-
         # De-duplication
         uniq = {}
         for cx, cy, r in candidates:
