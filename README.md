@@ -67,7 +67,7 @@ uv run python runner.py
 
 The runner will:
 - Process all images in `images/`
-- Detect PNNs using optimized parameters (5-65 µm radius range)
+- Detect PNNs using optimized parameters (4-14 µm radius range)
 - Display progress and detection statistics in the console
 - Save annotated images to `output/`
 
