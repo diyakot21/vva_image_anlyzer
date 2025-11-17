@@ -1,43 +1,38 @@
-"""PNN detection runner (simplified)."""
-
 import cv2
 import numpy as np
 from pathlib import Path
 
-from src.pnn_analyzer import PNNAnalyzer as BasePNNAnalyzer
+from src.pnn_analyzer import PNNAnalyzer
 from src.image_reader import ImageReader
-
-
-class PNNAnalyzer(BasePNNAnalyzer):
-    """PNNAnalyzer with preferred thresholds (renamed from OptimalPNNAnalyzer)."""
-
-    def __init__(self):
-        super().__init__(
-            min_pnn_radius=5,
-            max_pnn_radius=65,
-            contrast_threshold=1.05,
-            uniformity_threshold=0.18,
-            template_threshold=0.27,
-            center_darkness_threshold=0.70,
-            use_clahe=True,
-            clahe_clip_limit=2.5,
-            clahe_tile_grid=(8, 8),
-            apply_background_subtraction=True,
-            background_blur_radius=55,
-        )
 
 
 def main():
     reader = ImageReader("./images")
     output_dir = Path("./output")
+    # Ensure output directory exists so cv2.imwrite doesn't fail silently
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     for image_path, image in reader.load_all_images(color_mode="color"):
         print(f"\n{'='*60}")
         print(f"PNN DETECTION: {image_path.name}")
         print(f"{'='*60}")
 
-        analyzer = PNNAnalyzer()
+        # Initialize analyzer with PV interneuron PNN parameters
+        # PV somata: 10-20 µm diameter, PNN rings: 12-28 µm across (radii 6-14 µm)
+        # Expanded to detect smaller bright PNNs
+        analyzer = PNNAnalyzer(
+            min_pnn_radius_mm=0.004,  # 4 microns - detect smaller bright PNNs
+            max_pnn_radius_mm=0.014,  # 14 microns - based on PV interneuron PNN data
+            pixel_size_mm=0.001,  # 1 micron per pixel (calibrate from microscope settings)
+            contrast_threshold=1.30,  # Ring must be 30% brighter - balanced sensitivity
+            uniformity_threshold=0.16,  # Stricter - rejects irregular rings
+            template_threshold=0.12,  # Very lenient - accepts irregular/oval shapes
+            center_darkness_threshold=0.70,  # Stricter - requires darker centers
+            min_ring_brightness=0.0,  # Disabled - use only relative contrast
+        )
         print(f"\n⚙️  PARAMETERS:")
+        print(f"   Pixel size: {analyzer.pixel_size_mm*1000:.2f} µm/pixel")
+        print(f"   PNN radius range: {analyzer.min_pnn_radius_mm*1000:.1f}-{analyzer.max_pnn_radius_mm*1000:.1f} µm")
         print(f"   Template threshold: {analyzer.template_threshold}")
         print(f"   Contrast threshold: {analyzer.contrast_threshold}")
         print(f"   Uniformity threshold: {analyzer.uniformity_threshold}")
@@ -46,6 +41,12 @@ def main():
         result = analyzer.analyze_image(image, str(image_path))
         print(f"\n📊 RESULTS:")
         print(f"   PNNs detected: {result.pnn_count}")
+        if result.pnn_circles_mm:
+            radii_mm = [r for _, _, r in result.pnn_circles_mm]
+            avg_radius_um = np.mean(radii_mm) * 1000
+            min_radius_um = min(radii_mm) * 1000
+            max_radius_um = max(radii_mm) * 1000
+            print(f"   PNN sizes (µm): avg={avg_radius_um:.1f}, range={min_radius_um:.1f}-{max_radius_um:.1f}")
         if result.quality_scores:
             avg_quality = float(np.mean(result.quality_scores))
             min_quality = float(min(result.quality_scores))

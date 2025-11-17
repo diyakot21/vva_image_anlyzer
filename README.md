@@ -7,12 +7,12 @@ Tools for analyzing brain images to detect perineuronal nets (PNNs) and general 
 
 Core
 * Image loading (`ImageReader`) with JPG / PNG / TIF(F) / BMP support
-* PNN detection (`PNNAnalyzer`) combining:
+* PNN detection (`PNNAnalyzer`) with millimeter-based parameters:
     * Preprocessing: bilateral denoise, optional background subtraction, optional CLAHE
-    * Hough gradient circle candidates + single ring template matching
+    * Hough gradient circle candidates + ring template matching
     * Quality metrics: contrast, ring uniformity, center darkness, signal/background, size
     * Overlap suppression
-* Generic circular structure detection (`BrainImageAnalyzer`) via Hough Circle Transform
+    * Results in both pixel and millimeter coordinates
 * Visualization utilities for drawing detections
 
 Developer / Analysis
@@ -28,8 +28,7 @@ Developer / Analysis
 .
 ├── runner.py                # Main PNN batch runner
 ├── src/
-│   ├── pnn_analyzer.py      # PNN detection logic
-│   ├── brain_analyzer.py    # Generic circle detection
+│   ├── pnn_analyzer.py      # PNN detection with mm parameters
 │   ├── image_reader.py      # Directory image loader
 │   └── image_utils.py       # Basic image helpers
 ├── images/                  # (User) input images (.tif, .png, ...)
@@ -49,73 +48,114 @@ Install using [uv](https://github.com/astral-sh/uv) (recommended):
 uv sync
 ```
 
-Or (fallback) install key runtime dependencies manually:
-
-```bash
-pip install opencv-python numpy pillow scikit-image matplotlib
-```
-
 Python 3.13 is targeted (see `pyproject.toml`). Use `uv run` to automatically use the project environment (no manual activation needed).
 
 ---
-## ▶️ Quick Start: PNN Detection
+## ▶️ Quick Start: Running the PNN Detector
 
-Place one or more `.tif` (or other supported) images in `images/` then run:
+### 1. Prepare your images
+Place your brain section images (`.tif`, `.png`, or other supported formats) in the `images/` directory:
+```bash
+mkdir -p images
+# Copy your images to the images/ folder
+```
 
+### 2. Run the analyzer
 ```bash
 uv run python runner.py
 ```
 
-Output:
-* Annotated images: `output/pnn_<original_name>.tif|png`
-* Console summary: counts + quality score distribution
+The runner will:
+- Process all images in `images/`
+- Detect PNNs using optimized parameters (4-14 µm radius range)
+- Display progress and detection statistics in the console
+- Save annotated images to `output/`
 
-Color legend (default console):
-* >0.8 quality = Green
-* 0.7–0.8 = Yellow
-* 0.6–0.7 = Cyan / Blue
-* ≤0.6 = Red
+### 3. View results
+**Annotated images**: `output/pnn_<original_name>.tif|png`
+- Each detected PNN is drawn as a colored circle
+- Circle color indicates quality score
+
+**Console output**:
+- Total PNNs detected per image
+- Average, min, and max PNN sizes in micrometers
+- Quality score breakdown
+
+**Quality color legend**:
+- 🟢 Green (>0.8): Excellent detection
+- 🟡 Yellow (0.7–0.8): Good detection
+- 🔵 Cyan/Blue (0.6–0.7): Moderate detection
+- 🔴 Red (≤0.6): Poor detection
 
 ---
-## ⚙️ Tuning Key Parameters (`PNNAnalyzer`)
+## 📏 Usage with Millimeter Parameters
 
-Constructor arguments (shown with runner overrides):
+The analyzer accepts PNN sizes in millimeters and automatically converts to pixels:
 
 ```python
-PNNAnalyzer(
-        min_pnn_radius=5,
-        max_pnn_radius=65,
-        contrast_threshold=1.05,
-        uniformity_threshold=0.18,
-        template_threshold=0.27,
-        center_darkness_threshold=0.70,
-        use_clahe=True,
-        clahe_clip_limit=2.5,
-        clahe_tile_grid=(8, 8),
-        apply_background_subtraction=True,
-        background_blur_radius=55,
+from src.pnn_analyzer import PNNAnalyzer
+import cv2
+
+# Initialize with mm-based parameters
+analyzer = PNNAnalyzer(
+    min_pnn_radius_mm=0.005,   # 5 micrometers
+    max_pnn_radius_mm=0.065,   # 65 micrometers
+    pixel_size_mm=0.001,       # 1 micrometer per pixel
+    contrast_threshold=1.05,
+    uniformity_threshold=0.18
+)
+
+# Analyze image
+image = cv2.imread("images/sample.tif")
+result = analyzer.analyze_image(image, "sample.tif")
+
+print(f"Detected {result.pnn_count} PNNs")
+print(f"Pixel coordinates: {result.pnn_circles}")       # (x, y, r) in pixels
+print(f"MM coordinates: {result.pnn_circles_mm}")        # (x, y, r) in millimeters
+
+# Get sizes in micrometers
+for x_mm, y_mm, r_mm in result.pnn_circles_mm:
+    print(f"PNN at ({x_mm*1000:.1f}, {y_mm*1000:.1f}) µm, radius: {r_mm*1000:.1f} µm")
+```
+
+### Calibrating Pixel Size
+
+Adjust `pixel_size_mm` based on your microscope:
+
+| Magnification | Typical µm/pixel | pixel_size_mm |
+|---------------|------------------|---------------|
+| 10x           | 0.5 - 1.0        | 0.0005 - 0.001|
+| 20x           | 0.25 - 0.5       | 0.00025 - 0.0005|
+| 40x           | 0.1 - 0.25       | 0.0001 - 0.00025|
+| 63x           | ~0.1             | 0.0001        |
+
+---
+## ⚙️ Tuning Key Parameters
+
+```python
+analyzer = PNNAnalyzer(
+    min_pnn_radius_mm=0.005,          # 5 µm minimum radius
+    max_pnn_radius_mm=0.065,          # 65 µm maximum radius
+    pixel_size_mm=0.001,              # 1 µm per pixel (adjust for your microscope)
+    contrast_threshold=1.05,          # Ring must be brighter than center
+    uniformity_threshold=0.18,        # Ring brightness consistency
+    template_threshold=0.27,          # Template matching sensitivity
+    center_darkness_threshold=0.70,   # Center must be darker than ring
+    use_clahe=True,                   # Adaptive histogram equalization
+    clahe_clip_limit=2.5,
+    clahe_tile_grid=(8, 8),
+    apply_background_subtraction=True,
+    background_blur_radius=55,        # In pixels
 )
 ```
 
 Adjustment guidance:
+* Adjust `min/max_pnn_radius_mm` for your expected PNN sizes
 * Lower `contrast_threshold` → more sensitive (may increase false positives)
 * Lower `uniformity_threshold` → accept less uniform rings
 * Lower `template_threshold` → more template hits (filter later by quality)
 * Increase `background_blur_radius` if illumination gradients remain
 * Disable `use_clahe` for already high‑contrast fluorescence images
-
----
-## 🔍 Generic Circle Detection (`BrainImageAnalyzer`)
-
-For simpler circular structure detection (no ring quality scoring):
-
-```python
-from src.brain_analyzer import BrainImageAnalyzer
-analyzer = BrainImageAnalyzer(dp=1.0, min_dist=20, param1=60, param2=25,
-                                                            min_radius=5, max_radius=50)
-result = analyzer.analyze_image(image, "sample.png")
-print(result.circle_count, result.circles)
-```
 
 ---
 ## 🧪 Testing
@@ -189,14 +229,13 @@ vva_image_analyzer/
 ├── src/
 │   ├── __init__.py
 │   ├── image_reader.py      # Image loading utilities
-│   ├── brain_analyzer.py    # (legacy) Circle detection analysis
-│   └── pnn_analyzer.py      # PNN detection analysis
-├── runner_optimal.py        # Main runner for PNN detection
+│   ├── image_utils.py       # Image helper functions
+│   └── pnn_analyzer.py      # PNN detection with mm parameters
+├── runner.py                # Main runner for PNN detection
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_images.py
-│   ├── quick_test.py
 │   ├── test_runner.py
 │   ├── test_images/
 │   └── test_results/
