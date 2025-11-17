@@ -24,11 +24,11 @@ class PNNAnalyzer:
         max_pnn_radius_mm: float = 0.040,  # Default ~35 pixels at 1 micron/pixel
         pixel_size_mm: float = 0.001,  # Default: 1 micron per pixel
         contrast_threshold: float = 0.95,
-        uniformity_threshold: float = 0.12,
-        template_threshold: float = 0.20,
+        uniformity_threshold: float = 0.05,
+        template_threshold: float = 0.15,
         center_darkness_threshold: float = 0.80,
         use_clahe: bool = True,
-        clahe_clip_limit: float = 2.0,
+        clahe_clip_limit: float = 3.5,
         clahe_tile_grid: Tuple[int, int] = (8, 8),
         apply_background_subtraction: bool = True,
         background_blur_radius: int = 45,
@@ -154,6 +154,22 @@ class PNNAnalyzer:
         for x0, y0 in zip(xs, ys):
             candidates.append((x0 + br, y0 + br, br))
 
+        # Blob-based candidates for non-perfectly-round nets
+        _, bin_img = cv2.threshold(image, 0, 255, cv2.THRESH_OTSU)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        morph = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel, iterations=1)
+
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(morph)
+        for i in range(1, num_labels):
+            x_center, y_center = centroids[i]
+            area = stats[i, cv2.CC_STAT_AREA]
+            if area < np.pi * (self.min_pnn_radius ** 2) * 0.4:
+                continue
+            if area > np.pi * (self.max_pnn_radius ** 2) * 1.5:
+                continue
+            approx_r = int(np.sqrt(area / np.pi))
+            candidates.append((int(x_center), int(y_center), approx_r))
+
         # De-duplication
         uniq = {}
         for cx, cy, r in candidates:
@@ -191,6 +207,20 @@ class PNNAnalyzer:
         center_darkness_ratio = inner_mean / (ring_mean + 1e-6)
         size_score = 1.0 if self.min_pnn_radius <= r <= self.max_pnn_radius else 0.5
 
+        # Local patchiness / halo measure for non-uniform PNNs
+        local_radius = int(r * 1.2)
+        y_min = max(0, y - local_radius)
+        y_max = min(h, y + local_radius)
+        x_min = max(0, x - local_radius)
+        x_max = min(w, x + local_radius)
+        patch = image[y_min:y_max, x_min:x_max]
+
+        patchy_score = 0.0
+        if patch.size > 0:
+            patch_mean = float(patch.mean())
+            patch_std = float(patch.std())
+            patchy_score = (ring_mean - patch_mean) / (patch_std + 1e-6)
+
         stats = dict(
             ring_mean=ring_mean,
             inner_mean=inner_mean,
@@ -200,9 +230,11 @@ class PNNAnalyzer:
             center_darkness_ratio=center_darkness_ratio,
             size_score=size_score,
             radius=r,
+            patchy_score=patchy_score,
         )
 
-        is_valid = (
+        # Standard validation for uniform PNNs
+        is_valid_basic = (
             contrast_ratio > self.contrast_threshold
             and ring_uniformity > self.uniformity_threshold
             and signal_to_background > 1.25  # Increased further - only bright PNNs
@@ -211,9 +243,21 @@ class PNNAnalyzer:
             and ring_mean > self.min_ring_brightness
         )
 
+        # Fallback for patchy / non-circular halos with strong local contrast
+        is_valid_patchy = (
+            contrast_ratio > (self.contrast_threshold * 0.75)
+            and signal_to_background > 1.08
+            and patchy_score > 0.6
+            and size_score > 0.5
+            and ring_mean > (self.min_ring_brightness - 15)
+        )
+
+        is_valid = is_valid_basic or is_valid_patchy
+
+        # Rebalanced quality scoring: prioritize contrast over uniformity
         quality = (
-            min(contrast_ratio / 2.0, 1.0) * 0.4
-            + ring_uniformity * 0.25
+            min(contrast_ratio / 2.0, 1.0) * 0.5
+            + ring_uniformity * 0.15
             + min(signal_to_background / 2.0, 1.0) * 0.15
             + (1 - center_darkness_ratio) * 0.15
             + size_score * 0.05
