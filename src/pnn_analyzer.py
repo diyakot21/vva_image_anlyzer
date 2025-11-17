@@ -163,8 +163,12 @@ class PNNAnalyzer:
         for i in range(1, num_labels):
             x_center, y_center = centroids[i]
             area = stats[i, cv2.CC_STAT_AREA]
+            # Allow blobs with area as small as 40% of the ideal minimum circle area
+            # to account for irregular or incomplete PNN edges.
             if area < np.pi * (self.min_pnn_radius ** 2) * 0.4:
                 continue
+            # Allow blobs with area up to 150% of the ideal maximum circle area
+            # to account for diffuse halos or merged PNNs.
             if area > np.pi * (self.max_pnn_radius ** 2) * 1.5:
                 continue
             approx_r = int(np.sqrt(area / np.pi))
