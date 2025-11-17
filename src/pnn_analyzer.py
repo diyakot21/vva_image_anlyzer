@@ -257,11 +257,17 @@ class PNNAnalyzer:
         )
 
         # Fallback for patchy / non-circular halos with strong local contrast
+        # Patchy PNN validation: thresholds empirically chosen to allow detection of less uniform, lower-contrast rings
         is_valid_patchy = (
+            # Allow 25% lower contrast than standard threshold for patchy rings
             contrast_ratio > (self.contrast_threshold * 0.75)
+            # Slightly lower signal-to-background ratio accepted (empirically, 1.08 allows weak but real PNNs)
             and signal_to_background > 1.08
+            # Patchy score: >0.6 means ring is still locally distinct from background (empirically determined)
             and patchy_score > 0.6
+            # Size and brightness requirements relaxed for patchy PNNs
             and size_score > 0.5
+            # Allow up to 15 units lower ring brightness than standard (to catch faint/patchy rings)
             and ring_mean > (self.min_ring_brightness - 15)
         )
 
