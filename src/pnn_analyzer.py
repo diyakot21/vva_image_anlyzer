@@ -230,7 +230,9 @@ class PNNAnalyzer:
         if patch.size > 0:
             patch_mean = float(patch.mean())
             patch_std = float(patch.std())
-            patchy_score = (ring_mean - patch_mean) / (patch_std + 1e-6)
+            # Patchy score measures how much brighter the ring is than the local patch, normalized by patch std.
+            # Clamp to zero if negative (i.e., if patch is brighter than ring), since negative values are not meaningful for validation.
+            patchy_score = max(0.0, (ring_mean - patch_mean) / (patch_std + 1e-6))
 
         stats = dict(
             ring_mean=ring_mean,
