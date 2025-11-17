@@ -20,18 +20,21 @@ class PNNDetectionResult:
 class PNNAnalyzer:
     def __init__(
         self,
-        min_pnn_radius_mm: float = 0.008,  # Default ~8 pixels at 1 micron/pixel
-        max_pnn_radius_mm: float = 0.035,  # Default ~35 pixels at 1 micron/pixel
+        min_pnn_radius_mm: float = 0.005,  # Default ~8 pixels at 1 micron/pixel
+        max_pnn_radius_mm: float = 0.040,  # Default ~35 pixels at 1 micron/pixel
         pixel_size_mm: float = 0.001,  # Default: 1 micron per pixel
-        contrast_threshold: float = 1.3,
-        uniformity_threshold: float = 0.2,
-        template_threshold: float = 0.32,
-        center_darkness_threshold: float = 0.75,
+        contrast_threshold: float = 0.95,
+        uniformity_threshold: float = 0.12,
+        template_threshold: float = 0.20,
+        center_darkness_threshold: float = 0.80,
         use_clahe: bool = True,
         clahe_clip_limit: float = 2.0,
         clahe_tile_grid: Tuple[int, int] = (8, 8),
         apply_background_subtraction: bool = True,
         background_blur_radius: int = 45,
+        use_binary_threshold: bool = False,  # Apply statistical thresholding (research method)
+        threshold_sd_multiplier: float = 2.5,  # SD multiplier for thresholding
+        min_ring_brightness: float = 80.0,  # Minimum absolute brightness for ring (0-255)
     ) -> None:
         """Initialize PNN analyzer with millimeter-based size parameters.
         
@@ -48,6 +51,8 @@ class PNNAnalyzer:
             clahe_tile_grid: CLAHE grid size for local enhancement regions
             apply_background_subtraction: Subtract blurred background to improve foreground contrast
             background_blur_radius: Blur kernel radius for background estimation (larger = smoother)
+            use_binary_threshold: Apply statistical thresholding and binarization
+            threshold_sd_multiplier: Standard deviation multiplier for thresholding
         """
         if pixel_size_mm <= 0:
             raise ValueError("pixel_size_mm must be > 0")
@@ -68,9 +73,12 @@ class PNNAnalyzer:
         self.clahe_tile_grid = clahe_tile_grid
         self.apply_background_subtraction = apply_background_subtraction
         self.background_blur_radius = background_blur_radius
+        self.use_binary_threshold = use_binary_threshold
+        self.threshold_sd_multiplier = threshold_sd_multiplier
+        self.min_ring_brightness = min_ring_brightness
 
     def preprocess_for_pnn(self, image: np.ndarray) -> np.ndarray:
-        """Convert to grayscale, denoise, subtract background, and apply CLAHE."""
+        """Preprocess using research-based approach: CLAHE, threshold at 2-2.5 SD, binarize, median filter."""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
@@ -96,6 +104,16 @@ class PNNAnalyzer:
             enhanced = clahe.apply(norm)
         else:
             enhanced = norm
+        
+        # Optional: Research-based thresholding and binarization
+        if self.use_binary_threshold:
+            mean_val = enhanced.mean()
+            std_val = enhanced.std()
+            threshold_val = mean_val + self.threshold_sd_multiplier * std_val
+            _, binary = cv2.threshold(enhanced, threshold_val, 255, cv2.THRESH_BINARY)
+            filtered = cv2.medianBlur(binary, 3)
+            return filtered
+        
         return enhanced
 
     def _create_ring_template(
@@ -113,14 +131,14 @@ class PNNAnalyzer:
         """Find candidate circles using Hough transform and template matching."""
         candidates: List[Tuple[int, int, int]] = []
 
-        # Hough circle detection
+        # Hough circle detection - very high sensitivity for small bright PNNs
         circles = cv2.HoughCircles(
             image,
             cv2.HOUGH_GRADIENT,
             dp=1.2,
-            minDist=16,
-            param1=70,
-            param2=22,
+            minDist=6,  # Lower - allows detection of closer small PNNs
+            param1=28,
+            param2=6,  # Very low - finds small bright circles
             minRadius=self.min_pnn_radius,
             maxRadius=self.max_pnn_radius,
         )
@@ -187,9 +205,10 @@ class PNNAnalyzer:
         is_valid = (
             contrast_ratio > self.contrast_threshold
             and ring_uniformity > self.uniformity_threshold
-            and signal_to_background > 1.02
+            and signal_to_background > 1.25  # Increased further - only bright PNNs
             and center_darkness_ratio < self.center_darkness_threshold
             and size_score > 0.5
+            and ring_mean > self.min_ring_brightness
         )
 
         quality = (
@@ -214,7 +233,7 @@ class PNNAnalyzer:
             keep = True
             for x2, y2, r2 in kept:
                 d = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
-                if d < min(r1, r2) * 0.6:
+                if d < min(r1, r2) * 0.8:  # Increased to prevent duplicate detections
                     keep = False
                     break
             if keep:
