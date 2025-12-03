@@ -21,14 +21,14 @@ def main():
         # PV somata: 10-20 µm diameter, PNN rings: 12-28 µm across (radii 6-14 µm)
         # Expanded to detect smaller bright PNNs
         analyzer = PNNAnalyzer(
-            min_pnn_radius_mm=0.004,  # 4 microns - detect smaller bright PNNs
-            max_pnn_radius_mm=0.014,  # 14 microns - based on PV interneuron PNN data
+            min_pnn_radius_mm=0.0115,  # 11.5 microns (23 µm diameter) - larger to focus on bigger PNNs
+            max_pnn_radius_mm=0.0135,  # 13.5 microns (27 µm diameter)
             pixel_size_mm=0.001,  # 1 micron per pixel (calibrate from microscope settings)
-            contrast_threshold=1.30,  # Ring must be 30% brighter - balanced sensitivity
-            uniformity_threshold=0.16,  # Stricter - rejects irregular rings
-            template_threshold=0.12,  # Very lenient - accepts irregular/oval shapes
-            center_darkness_threshold=0.70,  # Stricter - requires darker centers
-            min_ring_brightness=0.0,  # Disabled - use only relative contrast
+            contrast_threshold=1.035,  # Balanced
+            uniformity_threshold=0.085,  # Moderate
+            template_threshold=0.20,  # Stricter for circular shapes
+            center_darkness_threshold=0.865,  # Balanced
+            min_ring_brightness=9.3,  # Balanced between detection and accuracy
         )
         print(f"\n⚙️  PARAMETERS:")
         print(f"   Pixel size: {analyzer.pixel_size_mm*1000:.2f} µm/pixel")
