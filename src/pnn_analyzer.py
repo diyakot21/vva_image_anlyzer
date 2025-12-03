@@ -28,7 +28,7 @@ class PNNAnalyzer:
         template_threshold: float = 0.15,
         center_darkness_threshold: float = 0.80,
         use_clahe: bool = True,
-        clahe_clip_limit: float = 3.5,
+        clahe_clip_limit: float = 6.0,
         clahe_tile_grid: Tuple[int, int] = (8, 8),
         apply_background_subtraction: bool = True,
         background_blur_radius: int = 45,
@@ -131,14 +131,14 @@ class PNNAnalyzer:
         """Find candidate circles using Hough transform and template matching."""
         candidates: List[Tuple[int, int, int]] = []
 
-        # Hough circle detection - very high sensitivity for small bright PNNs
+        # Hough circle detection - high sensitivity for faded/dim PNNs
         circles = cv2.HoughCircles(
             image,
             cv2.HOUGH_GRADIENT,
             dp=1.2,
-            minDist=6,  # Lower - allows detection of closer small PNNs
-            param1=28,
-            param2=6,  # Very low - finds small bright circles
+            minDist=17,  # Increased to prevent double detections and random spots
+            param1=26,  # Moderate edge threshold
+            param2=7,  # Balanced sensitivity
             minRadius=self.min_pnn_radius,
             maxRadius=self.max_pnn_radius,
         )
@@ -163,13 +163,10 @@ class PNNAnalyzer:
         for i in range(1, num_labels):
             x_center, y_center = centroids[i]
             area = stats[i, cv2.CC_STAT_AREA]
-            # Allow blobs with area as small as 40% of the ideal minimum circle area
-            # to account for irregular or incomplete PNN edges.
-            if area < np.pi * (self.min_pnn_radius ** 2) * 0.4:
+            # More conservative area thresholds to reduce artifact detection
+            if area < np.pi * (self.min_pnn_radius ** 2) * 0.6:
                 continue
-            # Allow blobs with area up to 150% of the ideal maximum circle area
-            # to account for diffuse halos or merged PNNs.
-            if area > np.pi * (self.max_pnn_radius ** 2) * 1.5:
+            if area > np.pi * (self.max_pnn_radius ** 2) * 1.2:
                 continue
             # Shape validation: aspect ratio and extent
             x, y, w, h, _ = stats[i]
@@ -218,6 +215,18 @@ class PNNAnalyzer:
         center_darkness_ratio = inner_mean / (ring_mean + 1e-6)
         size_score = 1.0 if self.min_pnn_radius <= r <= self.max_pnn_radius else 0.5
 
+        # Circularity check to reject non-circular artifacts
+        # Extract the ring region and calculate circularity
+        ring_contour_mask = np.zeros_like(image, dtype=np.uint8)
+        cv2.circle(ring_contour_mask, (x, y), int(r), 255, 2)
+        contours, _ = cv2.findContours(outer_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        circularity = 0.0
+        if contours and len(contours[0]) >= 5:
+            area_c = cv2.contourArea(contours[0])
+            perimeter = cv2.arcLength(contours[0], True)
+            if perimeter > 0:
+                circularity = 4 * np.pi * area_c / (perimeter ** 2)
+        
         # Local patchiness / halo measure for non-uniform PNNs
         local_radius = int(r * 1.2)
         y_min = max(0, y - local_radius)
@@ -244,31 +253,36 @@ class PNNAnalyzer:
             size_score=size_score,
             radius=r,
             patchy_score=patchy_score,
+            circularity=circularity,
         )
 
         # Standard validation for uniform PNNs
         is_valid_basic = (
             contrast_ratio > self.contrast_threshold
-            and ring_uniformity > self.uniformity_threshold
-            and signal_to_background > 1.25  # Increased further - only bright PNNs
+            and ring_uniformity > self.uniformity_threshold  # Moderate uniformity
+            and signal_to_background > 1.09  # Balanced
             and center_darkness_ratio < self.center_darkness_threshold
             and size_score > 0.5
             and ring_mean > self.min_ring_brightness
+            and ring_mean > inner_mean + 3.3  # Balanced
+            and circularity > 0.79  # Strict circularity for quality
         )
 
         # Fallback for patchy / non-circular halos with strong local contrast
         # Patchy PNN validation: thresholds empirically chosen to allow detection of less uniform, lower-contrast rings
         is_valid_patchy = (
-            # Allow 25% lower contrast than standard threshold for patchy rings
-            contrast_ratio > (self.contrast_threshold * 0.75)
-            # Slightly lower signal-to-background ratio accepted (empirically, 1.08 allows weak but real PNNs)
-            and signal_to_background > 1.08
-            # Patchy score: >0.6 means ring is still locally distinct from background (empirically determined)
-            and patchy_score > 0.6
-            # Size and brightness requirements relaxed for patchy PNNs
+            # Relaxed contrast for dim patchy rings
+            contrast_ratio > (self.contrast_threshold * 0.745)
+            # Moderate signal-to-background
+            and signal_to_background > 1.06
+            # Moderate patchy score requirement
+            and patchy_score > 0.55
+            # Size requirement
             and size_score > 0.5
-            # Allow up to 15 units lower ring brightness than standard (to catch faint/patchy rings)
-            and ring_mean > (self.min_ring_brightness - 15)
+            # Brightness threshold with CLAHE enhancement
+            and ring_mean > (self.min_ring_brightness - 1.1)
+            and ring_mean > inner_mean + 2.4  # Balanced
+            and circularity > 0.69  # Balanced circularity for quality
         )
 
         is_valid = is_valid_basic or is_valid_patchy
@@ -296,7 +310,7 @@ class PNNAnalyzer:
             keep = True
             for x2, y2, r2 in kept:
                 d = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
-                if d < min(r1, r2) * 0.8:  # Increased to prevent duplicate detections
+                if d < min(r1, r2) * 4.0:  # Increased to completely prevent doubles
                     keep = False
                     break
             if keep:
